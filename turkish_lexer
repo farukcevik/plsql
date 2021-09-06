@@ -1,0 +1,31 @@
+# Özellikle text index olarak indexlenecek dokuman veya tablolar içerisinde türkçe karakterlerin indexlenmesini ve aramalarda ingilizce karakterle ile türkçe karakterlerin birlikte aranmasını sağlayan yapıdır (c – ç, u-ü vb..).
+
+begin
+     ctx_ddl.create_preference('turkish_lexer','basic_lexer');
+     ctx_ddl.set_attribute('turkish_lexer','mixed_case','no');
+     ctx_ddl.set_attribute('turkish_lexer','base_letter','yes');
+     ctx_ddl.set_attribute('turkish_lexer','base_letter_type','specific');
+     ctx_ddl.set_attribute('turkish_lexer','printjoins','_');
+     ctx_ddl.add_sub_lexer('global_lexer', 'turkish', 'turkish_lexer', 'TRH');
+end;
+
+# Veritabanımız turkish_lexer tanmladık artık bunu kullanarak indexler oluşturabiliriz. Aşağıda bu tip bir indexi nasıl oluşturduğumuz görmek için, bir text index örneği verdik;
+
+begin       
+    ctx_ddl.create_preference(preference_name => 'test_lexer_idx_pref',
+                        object_name => 'MULTI_COLUMN_DATASTORE');
+end;
+
+
+begin
+ctx_ddl.set_attribute(
+    preference_name => 'test_lexer_idx_pref',
+    attribute_name =>'COLUMNS',
+    attribute_value => 'ADSOYAD,NUMARA,BOLUM');
+end;
+
+create index FTI_TEST_IDX on TEST_TABLE(fti) 
+ indextype is ctxsys.context
+parameters('DATASTORE test_lexer_idx_pref lexer turkish_lexer');
+
+# Burada kullanılan Turkish Lexer tanımını istersek text index te kullandığımız gibi normal index içinde kullanabiliriz.
