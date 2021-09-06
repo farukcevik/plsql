@@ -1,0 +1,10 @@
+# Bir gün önceden kaln inactive session ları kill etmek için döngü;
+
+begin
+    for i in (select * from v$session where status='INACTIVE' and (sysdate-PREV_EXEC_START)>1)
+    LOOP
+       --dbms_output.put_line(q'{ALTER SYSTEM KILL SESSION '}'||i.sid||q'[,]'  ||i.serial#||q'[']'||' IMMEDIATE;');
+        EXECUTE IMMEDIATE(q'{ALTER SYSTEM KILL SESSION '}'||i.sid||q'[,]'  ||i.serial#||q'[']'||' IMMEDIATE');
+    END LOOP;
+end;
+/
