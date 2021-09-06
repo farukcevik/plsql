@@ -1,0 +1,25 @@
+# Tablo yapısı aşağıdaki gibidir.
+create table KR_FOTO_TEST(
+        filename        varchar2(100) primary key,
+        FOTO        blob
+);
+
+#Aşağıdaki kod bloğu KR_FOTO_DIR dizininde bulunan test.jpg dosyasını blob olarak veritabanındaki ilgili tyabloya yazarak, insert işlemini tamamlayan bir kod parçasıdır.
+
+declare
+        fHnd            bfile;
+        b               blob;
+        srcOffset       integer := 1;
+        dstOffset       integer := 1;
+begin
+        dbms_lob.CreateTemporary( b, true );
+        fHnd := BFilename( 'KR_FOTO_DIR', 'test.jpg' );
+        dbms_lob.FileOpen( fHnd, DBMS_LOB.FILE_READONLY );
+        dbms_lob.LoadFromFile( b, fHnd, DBMS_LOB.LOBMAXSIZE, dstOffset, srcOffset );
+
+        insert into KR_FOTO_TEST values( 'test.jpg', b );
+        commit;
+
+        dbms_lob.FileClose( fHnd );
+end;
+/
