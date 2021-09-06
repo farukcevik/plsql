@@ -1,0 +1,67 @@
+#Bir Tablodan Alınan veriler ile başka bir tabloya sorgu yaparak tablo oluşturmak ve tabloya insert işlemi gerçekleştiren kod bloğu
+
+DECLARE  
+  lv_sayac number:=1;
+BEGIN  
+    for i in (select * from KITAP_TESPIT)
+    loop
+        if lv_sayac=1 then
+        EXECUTE IMMEDIATE 
+            q'|BEGIN  execute immediate
+                'CREATE TABLE ktp_tspt_dty AS 
+                SELECT ADSOYAD,TELNO,TCNO,EPOSTA from |'||i.TABLOISMI|| q'[ where EPOSTA='']'||i.EPOSTA||q'['']'||q'|'; 
+                END;  
+            |';        
+           else 
+        EXECUTE IMMEDIATE  
+            q'|BEGIN execute immediate 
+                'INSERT INTO ktp_tspt_dty 
+                SELECT ADSOYAD,TELNO,TCNO,EPOSTA from |'||i.TABLOISMI|| q'[ where EPOSTA='']'||i.EPOSTA||q'['']'||q'|'; 
+                END;  
+            |';  
+          end if;
+          lv_sayac:=lv_sayac+1;
+     end loop;
+END; 
+
+# Yukarıdaki işlemin sql lerini çıkaran plsql kod bloğu;
+
+DECLARE  
+  lv_sayac number:=1;
+BEGIN  
+    for i in (select * from KITAP_TESPIT)
+    loop
+        if lv_sayac=1 then
+        EXECUTE IMMEDIATE 
+            q'|BEGIN  
+                dbms_output.put_line('CREATE TABLE JDBA.ktp_tspt_dty AS 
+                SELECT ADSOYAD,TELNO,TCNO,EPOSTA from |'||i.TABLOISMI|| q'[ where EPOSTA='']'||i.EPOSTA||q'['']'||q'|'); 
+                END;  
+            |';        
+           else 
+        EXECUTE IMMEDIATE  
+            q'|BEGIN  
+                dbms_output.put_line('INSERT INTO JDBA.ktp_tspt_dty 
+                SELECT ADSOYAD,TELNO,TCNO,EPOSTA from |'||i.TABLOISMI|| q'[ where EPOSTA='']'||i.EPOSTA||q'['']'||q'|'); 
+                END;  
+            |';  
+          end if;
+          lv_sayac:=lv_sayac+1;
+     end loop;
+END;
+
+# Bir tablodan çekilen verilerle diğer tablonun tüm verilerini update eden Pl sql kod bloğu
+
+DECLARE  
+  lv_sayac number:=1;
+BEGIN  
+    for i in (select * from TEMP_BLOGCU_TESPIT_TEL_abn)
+    loop
+        EXECUTE IMMEDIATE 
+                   q'{BEGIN  
+                        dbms_output.put_line('UPDATE  TEMP_BLOGCU_EPSTA_DTY SET TCNO = (SELECT TCNO from }'||i.TABLOISMI|| q'[ where TELNO='']'||i.TELNO||q'['' and rownum=1) WHERE TELNO =]'||q'{''}'||i.telno||q'{'';}'||q'{'); 
+                        END;  
+                    }';      
+         lv_sayac:=lv_sayac+1;
+     end loop;
+END; 
