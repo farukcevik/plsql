@@ -1,0 +1,13 @@
+#Bir Schema daki tüm tabloları başka bir schema ya taşıyan Pl-sql kod bloğu.
+
+begin 
+for loop_table in 
+    (SELECT * from all_tables where owner ='FRK' and TABLE_NAME like  'IS%')
+
+  LOOP 
+      execute immediate 'create table 
+      DIGERSCHEMA.'||loop_table.table_name||' as
+      select * from FRK.'||loop_table.table_name;
+      dbms_output.put_line(loop_table.table_name);
+  END LOOP loop_table;
+end;
