@@ -1,0 +1,291 @@
+# Konuyla ilgili bir örnek yapacak olursak : Üç tablodan olan bir joinde, tabloA tablosundan 2 ve tabloB tablosundan 1, tabloC tablosundan 1 alanın text indekslenmesi var.
+# SYS veya herhangi bir DBA userı ile TBS_FRK_TEXT tablespace sini oluşturduk
+
+CREATE TABLESPACE TBS_FRK_TEXT DATAFILE 
+'/u01/app/oracle/oradata/orcl/tbs_frk_text01.dbf' SIZE 1G AUTOEXTEND ON NEXT 256M MAXSIZE UNLIMITED;
+
+create user FRK_TEXT identified by frk_test default tablespace TBS_FRK_TEXT temporary tablespace temp;
+
+grant dba to FRK_TEXT
+
+# verilerin sahibi olan kullanıcıya gerekli izinlerin verilmesi için;
+
+GRANT CTXAPP TO FRK_TEXT;
+GRANT EXECUTE ON CTXSYS.CTX_DDL TO FRK_TEXT;
+GRANT EXECUTE ON CTXSYS.CTX_DOC TO FRK_TEXT;
+GRANT EXECUTE ON CTXSYS.CTX_OUTPUT TO FRK_TEXT;
+GRANT EXECUTE ON CTXSYS.CTX_QUERY TO FRK_TEXT;
+GRANT EXECUTE ON CTXSYS.CTX_REPORT TO FRK_TEXT;
+GRANT EXECUTE ON CTXSYS.CTX_THES TO FRK_TEXT;
+GRANT EXECUTE ON CTXSYS.CTX_ULEXER TO FRK_TEXT;
+
+# indexleme işlemi için SGA alanında max ve default değerlerin tanımlanması yapılır;
+
+begin
+ctxsys.ctx_adm.set_parameter('MAX_INDEX_MEMORY','2047M');
+end;
+/
+
+begin
+ctxsys.ctx_adm.set_parameter('DEFAULT_INDEX_MEMORY','512M');
+end;
+/
+
+# Bu aşamadan sonra FRK_TEST kullanıcı ile aşağıdaki işlemleri yapıyoruz 
+
+SQL> create table tableA (id number(4) not null primary key, alanA1 varchar2(120), alanA2 varchar2(40));
+
+SQL> create table tableB (id number(2) not null primary key, idA number(4) references tableA(id), alanB1 varchar2(100));
+
+insert into tablea values (1,'Nuri Cömert','reşat nuri sokak ayrancı');
+insert into tableb values (11,1,'ortadoğu teknik üniversitesi Bilgisayar Mühendisliği mezunu');
+insert into tablec values (11,1,'Oracle bilgisayar Sistemleri Ltd. Şti. çalışıyor');
+insert into tablea values (2,'Falan fistan','ankara yıldız');
+insert into tableb values (22,2,'okumamış takılmış kendince');
+insert into tablec values (22,2,'serbest meslek sahibi telefonu 0312 555 1550');
+insert into tablea values (3,'orada buradan','ankara gaziosmanpaşa');
+insert into tableb values (33,3,'izmirde büyümüş, daha sonra da askerliğini yapmış');
+insert into tablec values (33,3,'galericilik yapıyor istanbul''da 05555551548');
+commit;
+
+# Aşağıdaki procedure de join select cümlesi ile tablo alanları hepsi tek bir string olarak baş ve sonlarında uygun xml tagları  ile beraber sanal olarak bir araya getiriliyor;
+
+create or replace procedure mytextdstoreproc(rid in rowid, tlob in out clob )
+is
+    begin
+    for cur1 in (select 
+                        '<ADISOYADI>'||a.alanA1||'</ADISOYADI>' as a1, 
+                        '<ADRES>'||a.alanA2||'</ADRES>' as a2,
+                        '<ACIKLAMA>'||b.alanB1||'</ACIKLAMA>' as b1,
+                          '<ISIVETEL>'||c.alanC1||'</ISIVETEL>' as c1
+                 from tableA a, tableB b, tableC c
+                 where a.id = b.idA and a.id=c.idA and a.rowid = rid) 
+         loop 
+              dbms_lob.writeappend(tlob, length(cur1.a1), nls_upper(cur1.a1,'NLS_SORT=xTurkish'));
+              dbms_lob.writeappend(tlob, length(cur1.a2), nls_upper(cur1.a2,'NLS_SORT=xTurkish'));
+              dbms_lob.writeappend(tlob, length(cur1.b1), nls_upper(cur1.b1,'NLS_SORT=xTurkish'));
+              dbms_lob.writeappend(tlob, length(cur1.c1), nls_upper(cur1.c1,'NLS_SORT=xTurkish'));
+         end loop;
+end;
+/
+
+# Burada oluşturulan procedure daha sonrasında index oluşturmak üzere bir preference haline getirilir.
+
+begin 
+       ctx_ddl.create_preference('myudstore', 'user_datastore'); 
+       ctx_ddl.set_attribute('myudstore', 'procedure', 'mytextdstoreproc'); 
+       ctx_ddl.set_attribute('myudstore', 'output_type', 'CLOB'); 
+end;
+/
+
+# XML tagimizin anahtar alan isimlerini otomatik algılaması için;
+
+begin
+      ctx_ddl.create_section_group('myautosgroup', 'AUTO_SECTION_GROUP');
+end;
+/
+
+# stroge preferesleri oluşturuyoruz, compression kullanılmasını parametre olarak veriyoruz
+
+begin
+           ctx_ddl.create_preference('idx_search_sto_pref','BASIC_STORAGE');
+           ctx_ddl.set_attribute('idx_search_sto_pref','R_TABLE_CLAUSE',
+           'tablespace TBS_FRK_TEXT lob (data) store as (cache)');
+           ctx_ddl.set_attribute('idx_search_sto_pref','I_INDEX_CLAUSE',
+           'tablespace TBS_FRK_TEXT compress 2');
+end;
+/
+
+# Stoplistleri oluşturacağız buradaki kelimeler indexlenmeyecek, yeni bir kelime eklendiğinde veya çıkarıldığında bunu kullanan indexin yeniden oluşturulması gerekir.
+
+begin
+ctx_ddl.create_stoplist('TR_STOPLIST', 'BASIC_STOPLIST');
+ctx_ddl.add_stopword('TR_STOPLIST', 'AYRICA');
+ctx_ddl.add_stopword('TR_STOPLIST', 'AZ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'AZICIK');
+ctx_ddl.add_stopword('TR_STOPLIST', 'BİRİCİK');
+ctx_ddl.add_stopword('TR_STOPLIST', 'BİZCE');
+ctx_ddl.add_stopword('TR_STOPLIST', 'BANA');
+ctx_ddl.add_stopword('TR_STOPLIST', 'BAŞKA');
+ctx_ddl.add_stopword('TR_STOPLIST', 'BAŞKACA');
+ctx_ddl.add_stopword('TR_STOPLIST', 'BAY');
+ctx_ddl.add_stopword('TR_STOPLIST', 'BAYAN');
+ctx_ddl.add_stopword('TR_STOPLIST', 'BAZEN');
+ctx_ddl.add_stopword('TR_STOPLIST', 'BELKİ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'BELLİ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'BEN');
+ctx_ddl.add_stopword('TR_STOPLIST', 'BENCE');
+ctx_ddl.add_stopword('TR_STOPLIST', 'BERİKİ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'BİLAHARE');
+ctx_ddl.add_stopword('TR_STOPLIST', 'BİLAKİS');
+ctx_ddl.add_stopword('TR_STOPLIST', 'BİRAZ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'BİRAZCIK');
+ctx_ddl.add_stopword('TR_STOPLIST', 'BİRAZDAN');
+ctx_ddl.add_stopword('TR_STOPLIST', 'BİRÇOĞU');
+ctx_ddl.add_stopword('TR_STOPLIST', 'BİRÇOK');
+ctx_ddl.add_stopword('TR_STOPLIST', 'BİRİ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'BİRİSİ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'BİRKAÇ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'BİZ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'BİZE');
+ctx_ddl.add_stopword('TR_STOPLIST', 'BÖYLE');
+ctx_ddl.add_stopword('TR_STOPLIST', 'BÖYLECE');
+ctx_ddl.add_stopword('TR_STOPLIST', 'BÖYLESİ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'BÖYLESİNE');
+ctx_ddl.add_stopword('TR_STOPLIST', 'BU');
+ctx_ddl.add_stopword('TR_STOPLIST', 'BUNLAR');
+ctx_ddl.add_stopword('TR_STOPLIST', 'BURADA');
+ctx_ddl.add_stopword('TR_STOPLIST', 'BURAYA');
+ctx_ddl.add_stopword('TR_STOPLIST', 'BURASI');
+ctx_ddl.add_stopword('TR_STOPLIST', 'BÜYÜK');
+ctx_ddl.add_stopword('TR_STOPLIST', 'ÇOĞU');
+ctx_ddl.add_stopword('TR_STOPLIST', 'ÇOK');
+ctx_ddl.add_stopword('TR_STOPLIST', 'DA');
+ctx_ddl.add_stopword('TR_STOPLIST', 'DAHA');
+ctx_ddl.add_stopword('TR_STOPLIST', 'DAHİ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'DE');
+ctx_ddl.add_stopword('TR_STOPLIST', 'DEFA');
+ctx_ddl.add_stopword('TR_STOPLIST', 'DEFALARCA');
+ctx_ddl.add_stopword('TR_STOPLIST', 'DEĞİL');
+ctx_ddl.add_stopword('TR_STOPLIST', 'DEĞİN');
+ctx_ddl.add_stopword('TR_STOPLIST', 'DEK');
+ctx_ddl.add_stopword('TR_STOPLIST', 'DİĞER');
+ctx_ddl.add_stopword('TR_STOPLIST', 'DİĞERİ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'DİĞERİN');
+ctx_ddl.add_stopword('TR_STOPLIST', 'DİĞERİM');
+ctx_ddl.add_stopword('TR_STOPLIST', 'DİĞERLERİ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'EPEY');
+ctx_ddl.add_stopword('TR_STOPLIST', 'EPEYCE');
+ctx_ddl.add_stopword('TR_STOPLIST', 'EVVEL');
+ctx_ddl.add_stopword('TR_STOPLIST', 'GENE');
+ctx_ddl.add_stopword('TR_STOPLIST', 'GÖRE');
+ctx_ddl.add_stopword('TR_STOPLIST', 'HALBUKİ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'HANGİ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'HANİ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'HENÜZ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'HEPSİ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'HER');
+ctx_ddl.add_stopword('TR_STOPLIST', 'HERKES');
+ctx_ddl.add_stopword('TR_STOPLIST', 'HİÇ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'İÇİN');
+ctx_ddl.add_stopword('TR_STOPLIST', 'İLE');
+ctx_ddl.add_stopword('TR_STOPLIST', 'İSE');
+ctx_ddl.add_stopword('TR_STOPLIST', 'KENDİ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'KENDİLERİ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'KENDİMİZ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'KENDİM');
+ctx_ddl.add_stopword('TR_STOPLIST', 'KENDİNİZ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'KENDİN');
+ctx_ddl.add_stopword('TR_STOPLIST', 'KENDİSİ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'KERE');
+ctx_ddl.add_stopword('TR_STOPLIST', 'KEZ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'Kİ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'KİM');
+ctx_ddl.add_stopword('TR_STOPLIST', 'KİMSE');
+ctx_ddl.add_stopword('TR_STOPLIST', 'KÜÇÜK');
+ctx_ddl.add_stopword('TR_STOPLIST', 'MI');
+ctx_ddl.add_stopword('TR_STOPLIST', 'MISIN');
+ctx_ddl.add_stopword('TR_STOPLIST', 'MISINIZ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'Mİ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'MİSİN');
+ctx_ddl.add_stopword('TR_STOPLIST', 'MİSİNİZ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'MU');
+ctx_ddl.add_stopword('TR_STOPLIST', 'MUSUN');
+ctx_ddl.add_stopword('TR_STOPLIST', 'MUSUNUZ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'MÜ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'MÜSÜN');
+ctx_ddl.add_stopword('TR_STOPLIST', 'MÜSÜNÜZ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'NASIL');
+ctx_ddl.add_stopword('TR_STOPLIST', 'NE');
+ctx_ddl.add_stopword('TR_STOPLIST', 'NERDE');
+ctx_ddl.add_stopword('TR_STOPLIST', 'NERDEN');
+ctx_ddl.add_stopword('TR_STOPLIST', 'NEREDE');
+ctx_ddl.add_stopword('TR_STOPLIST', 'NEREDEN');
+ctx_ddl.add_stopword('TR_STOPLIST', 'NEREDEYSE');
+ctx_ddl.add_stopword('TR_STOPLIST', 'NEREYE');
+ctx_ddl.add_stopword('TR_STOPLIST', 'NEYE');
+ctx_ddl.add_stopword('TR_STOPLIST', 'NEYSE');
+ctx_ddl.add_stopword('TR_STOPLIST', 'NİYE');
+ctx_ddl.add_stopword('TR_STOPLIST', 'O');
+ctx_ddl.add_stopword('TR_STOPLIST', 'ONA');
+ctx_ddl.add_stopword('TR_STOPLIST', 'ONDA');
+ctx_ddl.add_stopword('TR_STOPLIST', 'ONLAR');
+ctx_ddl.add_stopword('TR_STOPLIST', 'ONLARA');
+ctx_ddl.add_stopword('TR_STOPLIST', 'ONLARCA');
+ctx_ddl.add_stopword('TR_STOPLIST', 'ONU');
+ctx_ddl.add_stopword('TR_STOPLIST', 'ORADA');
+ctx_ddl.add_stopword('TR_STOPLIST', 'ORASI');
+ctx_ddl.add_stopword('TR_STOPLIST', 'ORAYA');
+ctx_ddl.add_stopword('TR_STOPLIST', 'ÖBÜR');
+ctx_ddl.add_stopword('TR_STOPLIST', 'ÖBÜRKÜ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'ÖBÜRÜ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'ÖNCE');
+ctx_ddl.add_stopword('TR_STOPLIST', 'ÖNCEKİ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'ÖNCEKİLER');
+ctx_ddl.add_stopword('TR_STOPLIST', 'ÖTEKİ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'ÖYLE');
+ctx_ddl.add_stopword('TR_STOPLIST', 'ÖYLELİKLE');
+ctx_ddl.add_stopword('TR_STOPLIST', 'ÖYLESİNE');
+ctx_ddl.add_stopword('TR_STOPLIST', 'SANA');
+ctx_ddl.add_stopword('TR_STOPLIST', 'SANKİ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'SEN');
+ctx_ddl.add_stopword('TR_STOPLIST', 'SENCE');
+ctx_ddl.add_stopword('TR_STOPLIST', 'SİZ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'SİZCE');
+ctx_ddl.add_stopword('TR_STOPLIST', 'SİZE');
+ctx_ddl.add_stopword('TR_STOPLIST', 'SONRA');
+ctx_ddl.add_stopword('TR_STOPLIST', 'SONRAKİ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'SONRAKİLER');
+ctx_ddl.add_stopword('TR_STOPLIST', 'ŞÖYLE');
+ctx_ddl.add_stopword('TR_STOPLIST', 'ŞÖYLECE');
+ctx_ddl.add_stopword('TR_STOPLIST', 'ŞÖYLESİ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'ŞÖYLESİNE');
+ctx_ddl.add_stopword('TR_STOPLIST', 'ŞU');
+ctx_ddl.add_stopword('TR_STOPLIST', 'ŞUNLAR');
+ctx_ddl.add_stopword('TR_STOPLIST', 'ŞURADA');
+ctx_ddl.add_stopword('TR_STOPLIST', 'ŞURAYA');
+ctx_ddl.add_stopword('TR_STOPLIST', 'ŞURASI');
+ctx_ddl.add_stopword('TR_STOPLIST', 'TABİ');
+ctx_ddl.add_stopword('TR_STOPLIST', 'TEK');
+ctx_ddl.add_stopword('TR_STOPLIST', 'VE');
+ctx_ddl.add_stopword('TR_STOPLIST', 'VEYA');
+ctx_ddl.add_stopword('TR_STOPLIST', 'YA');
+ctx_ddl.add_stopword('TR_STOPLIST', 'YİNE');
+end;
+/
+
+exec ctx_ddl.drop_preference('MY_WORDLIST');
+
+
+begin
+       ctx_ddl.create_preference('MY_WORDLIST', 'BASIC_WORDLIST');
+       ctx_ddl.set_attribute('MY_WORDLIST','substring_index','YES');
+       ctx_ddl.set_attribute('MY_WORDLIST','prefix_index','YES');
+        ctx_ddl.set_attribute('MY_WORDLIST','prefix_min_length',2);
+       ctx_ddl.set_attribute('MY_WORDLIST','prefix_max_length',8);
+end;
+/
+
+create index myindex on TABLEA(ALANA1) indextype is ctxsys.context 
+parameters('storage idx_search_sto_pref
+datastore myudstore
+filter CTXSYS.NULL_FILTER
+section group MYAUTOSGROUP
+stoplist TR_STOPLIST
+wordlist MY_WORDLIST
+memory 512M') PARALLEL 2;
+
+alter index myindex NOPARALLEL;
+
+#Örnek bir sql aşağıdaki gibidir;
+
+select tablea.id,tablea.alana1, tablea.alana2,tableb.alanb1,tablec.alanc1
+      from tablea, tableb, tablec
+       where tablea.id = tableb.ida and tablea.id = tablec.ida and
+        contains (alana1,'(%48 WITHIN ISIVETEL OR %555% WITHIN ISIVETEL) AND ankara within ADRES AND İZMİR% within ACIKLAMA')>0;
+
+
+
+
+
+
